@@ -6,15 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Literal
 
-import typer
+# import typer
 
 BodyFormat = Literal["markdown", "text"]
-
-app = typer.Typer(
-    add_completion=False,
-    help="A Docling-based parser specialized for scientific papers.",
-)
-
 SECTION_FILE_RE = re.compile(r"[^a-z0-9]+")
 CAPTION_RE = re.compile(
     r"^(?P<kind>Figure|Fig\.?|Table)\s*(?P<number>[A-Za-z0-9.\-]+)\s*[:.\-]?\s*(?P<title>.*)$",
@@ -37,10 +31,7 @@ def _lazy_docling_import() -> tuple:
             PdfFormatOption,
         )
     except ImportError as exc:
-        raise typer.BadParameter(
-            "docling is not installed. Install it first with `uv add docling` "
-            "or `pip install docling`."
-        ) from exc
+        raise ImportError("docling is not installed. Install it first with `uv add docling` or `pip install docling`.") from exc
 
 
 @dataclass
@@ -57,16 +48,16 @@ class ParseConfig:
 def _iter_pdf_files(input_path: Path) -> Iterable[Path]:
     if input_path.is_file():
         if input_path.suffix.lower() != ".pdf":
-            raise typer.BadParameter(f"Expected a PDF file, got: {input_path}")
+            raise ValueError(f"Expected a PDF file, got: {input_path}")
         yield input_path
         return
 
     if not input_path.exists():
-        raise typer.BadParameter(f"Input path does not exist: {input_path}")
+        raise ValueError(f"Input path does not exist: {input_path}")
 
     pdf_files = sorted(p for p in input_path.rglob("*.pdf") if p.is_file())
     if not pdf_files:
-        raise typer.BadParameter(f"No PDF files found under: {input_path}")
+        raise ValueError(f"No PDF files found under: {input_path}")
 
     yield from pdf_files
 
@@ -539,39 +530,32 @@ def parse_pdf(config: ParseConfig) -> list[dict[str, Any]]:
 
     return reports
 
-
-@app.command()
 def run(
-    input_path: Path = typer.Argument(..., exists=True, readable=True, help="PDF file or directory"),
-    output_dir: Path = typer.Option(
-        Path("pdf_analysis") / "outputs",
-        "--output-dir",
-        "-o",
-        help="Directory for extracted results",
-    ),
-    artifacts_path: Path = typer.Option(
-        Path("pdf_analysis") / "artifacts",
-        "--artifacts-path",
-        help="Directory for Docling model artifacts",
-    ),
-    body_format: BodyFormat = typer.Option(
-        "markdown",
-        "--body-format",
-        help="Choose one main body export format",
-    ),
-    include_document_json: bool = typer.Option(
-        False,
-        "--document-json",
-        help="Also export raw Docling document.json",
-    ),
-    timeout_seconds: float = typer.Option(
-        120.0,
-        "--timeout-seconds",
-        min=1.0,
-        help="Per-document parse timeout in seconds",
-    ),
+    input_path: Path,
+    output_dir: Path,
+    # body_format: BodyFormat
+    # include_document_json: bool
+    timeout_seconds: float = 500.0
 ) -> None:
-    """Parse papers and export AI-friendly structured outputs."""
+    """Parse scientific paper PDFs into AI-friendly structured outputs.
+
+    For each paper, the tool writes:
+    - `summary.json`: compact entry point with title, page count, and manifest path
+    - `manifest.json`: detailed file map and extracted figure/table metadata
+    - `paper_body.md` or `paper_body.txt`: main paper body without references
+    - `abstract.*`: abstract only
+    - `references.*`: references only
+    - `sections/`: one file per detected section
+    - `figures/`: extracted figure PNG files only
+    - `tables/`: extracted table CSV files only
+
+    Figure and table titles, captions, page numbers, and body-text reference
+    snippets are stored in `manifest.json`. The file can be large, so don't read the full content directly.
+    """
+    file_dir = Path(__file__).parent
+    artifacts_path = file_dir / "artifacts"
+    body_format = "markdown"
+    include_document_json = False
 
     config = ParseConfig(
         input_path=input_path,
@@ -583,8 +567,4 @@ def run(
     )
 
     reports = parse_pdf(config)
-    typer.echo(json.dumps(reports, ensure_ascii=False, indent=2))
 
-
-if __name__ == "__main__":
-    app()
