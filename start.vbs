@@ -1,0 +1,1 @@
+CreateObject("WScript.Shell").Run ".\.venv\Scripts\python.exe .\pdf_analysis\mcp_server.py", 0, False
