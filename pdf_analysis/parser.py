@@ -45,12 +45,11 @@ class ParseConfig:
     timeout_seconds: float | None = 120.0
 
 
-def _iter_pdf_files(input_path: Path) -> Iterable[Path]:
+def _list_pdf_files(input_path: Path) -> list[Path]:
     if input_path.is_file():
         if input_path.suffix.lower() != ".pdf":
             raise ValueError(f"Expected a PDF file, got: {input_path}")
-        yield input_path
-        return
+        return [input_path]
 
     if not input_path.exists():
         raise ValueError(f"Input path does not exist: {input_path}")
@@ -59,7 +58,7 @@ def _iter_pdf_files(input_path: Path) -> Iterable[Path]:
     if not pdf_files:
         raise ValueError(f"No PDF files found under: {input_path}")
 
-    yield from pdf_files
+    return pdf_files
 
 
 def _safe_name(value: str, fallback: str = "item", max_len: int = 80) -> str:
@@ -442,14 +441,16 @@ def parse_pdf(config: ParseConfig) -> list[dict[str, Any]]:
 
     reports: list[dict[str, Any]] = []
 
-    for pdf_file in _iter_pdf_files(config.input_path):
+    file_list = _list_pdf_files(config.input_path)
+    is_single_file = len(file_list) == 1
+    for pdf_file in file_list:
         result = converter.convert(pdf_file)
         doc = result.document
         doc_dict = doc.export_to_dict()
         markdown_text = doc.export_to_markdown()
         plain_text = doc.export_to_text()
 
-        paper_dir = config.output_dir / _safe_stem(pdf_file)
+        paper_dir = config.output_dir if is_single_file else config.output_dir / _safe_stem(pdf_file)
         paper_dir.mkdir(parents=True, exist_ok=True)
 
         preamble_text, sections = _split_markdown_sections(markdown_text)
@@ -536,7 +537,7 @@ def run(
     # body_format: BodyFormat
     # include_document_json: bool
     timeout_seconds: float = 500.0
-) -> None:
+) -> list[dict[str, Any]]:
     """Parse scientific paper PDFs into AI-friendly structured outputs.
 
     For each paper, the tool writes:
@@ -566,5 +567,5 @@ def run(
         timeout_seconds=timeout_seconds,
     )
 
-    reports = parse_pdf(config)
+    return parse_pdf(config)
 

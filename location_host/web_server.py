@@ -8,19 +8,19 @@ from datetime import datetime
 import csv
 import glob
 import os
+import logging
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request, Path, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
-from logging import getLogger
 from fastapi_mcp import FastApiMCP as MCP
 
 from typing import Annotated
 
 app = FastAPI(title="位置接收服务器")
-logger = getLogger("location_server")
+logger = logging.getLogger("location_server")
 
 # 初始化 MCP
 mcp = MCP(app)
@@ -187,8 +187,8 @@ def receive_location(data: LocationInput, request: Request):
 
     save_location(location_record)
 
-    print(
-        f"[{datetime.now().strftime('%H:%M:%S')}] 收到位置: "
+    logger.info(
+        f"收到位置: "
         f"({location_record['latitude']:.5f}, {location_record['longitude']:.5f}, {location_record['location_describe']}) "
         f"来自 {location_record['ip']}"
     )
@@ -282,14 +282,3 @@ def index():
     """
 mcp = MCP(app,include_operations=['get_latest_location', 'get_trajectory'])
 mcp.mount_http() 
-
-if __name__ == "__main__":
-    import uvicorn
-
-    print("=" * 50)
-    print("位置接收服务器启动")
-    print(f"数据目录: {os.path.abspath(DATA_DIR)}")
-    print("API 地址: http://0.0.0.0:5000/api/location")
-    print("=" * 50)
-
-    uvicorn.run("web_server:app", host="0.0.0.0", port=5000, reload=True)
