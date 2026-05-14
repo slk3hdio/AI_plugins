@@ -1,0 +1,1 @@
+D:\\projects\\toy\\MCP\\pdf_analysis\\.venv\\Scripts\\python.exe D:\\projects\\toy\\MCP\\pdf_analysis\\main.py http

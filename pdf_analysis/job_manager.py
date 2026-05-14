@@ -52,6 +52,7 @@ class PipelineState:
     worker_task: asyncio.Task[None] | None = None
     running_job_id: str | None = None
     converter: Any = None
+    converter_ready: bool = False
 
     def __post_init__(self) -> None:
         self.queue = asyncio.Queue(maxsize=self.queue_max_size)
@@ -66,7 +67,6 @@ class JobManager:
         async with self._lock:
             if self._state.worker_task is not None:
                 return
-            self._state.converter = await asyncio.to_thread(self._create_converter)
             self._state.worker_task = asyncio.create_task(self._worker_loop(), name="pdf-analysis-worker")
             logger.info("Started PDF analysis worker with queue_max_size=%s", self._state.queue_max_size)
 
@@ -146,10 +146,12 @@ class JobManager:
     def get_server_status(self) -> dict[str, Any]:
         return {
             "pipeline_count": 1,
+            "worker_started": self._state.worker_task is not None,
             "running_job_id": self._state.running_job_id,
             "queued_jobs": self._state.queue.qsize(),
             "total_jobs": len(self._state.jobs),
             "queue_max_size": self._state.queue_max_size,
+            "converter_ready": self._state.converter_ready,
         }
 
     def _create_converter(self):
@@ -173,6 +175,11 @@ class JobManager:
                 self._state.queue.task_done()
 
     async def _run_job(self, job: ParseJob) -> None:
+        if self._state.converter is None:
+            logger.info("Initializing PDF converter for first queued job")
+            self._state.converter = await asyncio.to_thread(self._create_converter)
+            self._state.converter_ready = True
+
         self._state.running_job_id = job.job_id
         job.status = "running"
         job.started_at = _utc_now()

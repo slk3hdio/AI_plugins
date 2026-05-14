@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import argparse
 import logging
+from logging.handlers import TimedRotatingFileHandler
+from pathlib import Path
 
 import uvicorn
 
 from job_manager import JobManager
 from mcp_server import create_http_app, create_stdio_server
+
+
+LOG_DIR = Path(__file__).parent / "logs"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,10 +29,30 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def configure_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    formatter = logging.Formatter(
+        "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
     )
+
+    file_handler = TimedRotatingFileHandler(
+        LOG_DIR / "server.log",
+        when="midnight",
+        interval=1,
+        backupCount=30,
+        encoding="utf-8",
+    )
+    file_handler.suffix = "%Y-%m-%d.log"
+    file_handler.setFormatter(formatter)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.handlers.clear()
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
 
 
 def main() -> None:
