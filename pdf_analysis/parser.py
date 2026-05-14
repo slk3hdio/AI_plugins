@@ -45,6 +45,10 @@ class ParseConfig:
     timeout_seconds: float | None = 120.0
 
 
+def default_artifacts_path() -> Path:
+    return Path(__file__).parent / "artifacts"
+
+
 def _list_pdf_files(input_path: Path) -> list[Path]:
     if input_path.is_file():
         if input_path.suffix.lower() != ".pdf":
@@ -411,7 +415,7 @@ def _build_manifest(
     }
 
 
-def parse_pdf(config: ParseConfig) -> list[dict[str, Any]]:
+def create_converter(config: ParseConfig):
     (
         PyPdfiumDocumentBackend,
         InputFormat,
@@ -430,7 +434,7 @@ def parse_pdf(config: ParseConfig) -> list[dict[str, Any]]:
         config.artifacts_path.mkdir(parents=True, exist_ok=True)
         pipeline_options.artifacts_path = config.artifacts_path
 
-    converter = DocumentConverter(
+    return DocumentConverter(
         format_options={
             InputFormat.PDF: PdfFormatOption(
                 pipeline_options=pipeline_options,
@@ -439,6 +443,30 @@ def parse_pdf(config: ParseConfig) -> list[dict[str, Any]]:
         }
     )
 
+
+def create_parse_config(
+    input_path: Path,
+    output_dir: Path,
+    timeout_seconds: float = 500.0,
+    *,
+    artifacts_path: Path | None = None,
+    body_format: BodyFormat = "markdown",
+    include_document_json: bool = False,
+    image_scale: float = 2.0,
+) -> ParseConfig:
+    return ParseConfig(
+        input_path=input_path,
+        output_dir=output_dir,
+        artifacts_path=default_artifacts_path() if artifacts_path is None else artifacts_path,
+        body_format=body_format,
+        include_document_json=include_document_json,
+        image_scale=image_scale,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def parse_pdf(config: ParseConfig, converter=None) -> list[dict[str, Any]]:
+    converter = create_converter(config) if converter is None else converter
     reports: list[dict[str, Any]] = []
 
     file_list = _list_pdf_files(config.input_path)
@@ -553,17 +581,9 @@ def run(
     Figure and table titles, captions, page numbers, and body-text reference
     snippets are stored in `manifest.json`. The file can be large, so don't read the full content directly.
     """
-    file_dir = Path(__file__).parent
-    artifacts_path = file_dir / "artifacts"
-    body_format = "markdown"
-    include_document_json = False
-
-    config = ParseConfig(
+    config = create_parse_config(
         input_path=input_path,
         output_dir=output_dir,
-        artifacts_path=artifacts_path,
-        body_format=body_format,
-        include_document_json=include_document_json,
         timeout_seconds=timeout_seconds,
     )
 
