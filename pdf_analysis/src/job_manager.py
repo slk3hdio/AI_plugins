@@ -14,6 +14,7 @@ from parser import create_parse_config, create_converter, parse_pdf
 logger = logging.getLogger("pdf_analysis.jobs")
 
 JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
+IDLE_CONVERTER_TIMEOUT_SECONDS = 600.0
 
 
 def _utc_now() -> str:
@@ -53,6 +54,7 @@ class PipelineState:
     running_job_id: str | None = None
     converter: Any = None
     converter_ready: bool = False
+    last_job_finished_at: str | None = None
 
     def __post_init__(self) -> None:
         self.queue = asyncio.Queue(maxsize=self.queue_max_size)
@@ -80,6 +82,7 @@ class JobManager:
                 await worker_task
             except asyncio.CancelledError:
                 pass
+        self._release_converter()
 
     def submit_job(
         self,
@@ -152,6 +155,8 @@ class JobManager:
             "total_jobs": len(self._state.jobs),
             "queue_max_size": self._state.queue_max_size,
             "converter_ready": self._state.converter_ready,
+            "idle_converter_timeout_seconds": IDLE_CONVERTER_TIMEOUT_SECONDS,
+            "last_job_finished_at": self._state.last_job_finished_at,
         }
 
     def _create_converter(self):
@@ -165,7 +170,19 @@ class JobManager:
 
     async def _worker_loop(self) -> None:
         while True:
-            item = await self._state.queue.get()
+            try:
+                item = await asyncio.wait_for(
+                    self._state.queue.get(),
+                    timeout=IDLE_CONVERTER_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                if self._state.converter is not None:
+                    logger.info(
+                        "No jobs received for %s seconds; releasing idle PDF converter",
+                        IDLE_CONVERTER_TIMEOUT_SECONDS,
+                    )
+                    self._release_converter()
+                continue
             try:
                 job = self._state.jobs.get(item.job_id)
                 if job is None or job.cancelled:
@@ -190,11 +207,13 @@ class JobManager:
             job.status = "failed"
             job.error = str(exc)
             job.finished_at = _utc_now()
+            self._state.last_job_finished_at = job.finished_at
             logger.exception("Parse job %s failed", job.job_id)
         else:
             job.status = "succeeded"
             job.result = result
             job.finished_at = _utc_now()
+            self._state.last_job_finished_at = job.finished_at
             logger.info("Completed parse job %s", job.job_id)
         finally:
             self._state.running_job_id = None
@@ -212,6 +231,10 @@ class JobManager:
         if output_dir:
             return Path(output_dir).expanduser().resolve()
         return (Path(__file__).parent / "jobs" / job_id / "output").resolve()
+
+    def _release_converter(self) -> None:
+        self._state.converter = None
+        self._state.converter_ready = False
 
     def _require_job(self, job_id: str) -> ParseJob:
         job = self._state.jobs.get(job_id)
